@@ -95,7 +95,7 @@ public class AutoHookPresetBuilder
             .Select(f => f.Mooches.Length > 0 ? f.Mooches[0].BiteType : f.BiteType)
             .Where(bt => bt != BiteType.Unknown && bt != BiteType.None)
             .Distinct()
-            .ToList();
+            .ToHashSet();
         
         if (targetBiteTypes.Count == 0)
         {
@@ -103,27 +103,25 @@ public class AutoHookPresetBuilder
             return additionalFish;
         }
         
-        var fishingSpots = targetFish.SelectMany(f => f.FishingSpots).Distinct().ToList();
+        var relevantSpots = targetFish.SelectMany(f => f.FishingSpots).ToHashSet();
         
-        GatherBuddy.Log.Debug($"[AutoHook] Collecting fish from {fishingSpots.Count} fishing spots for Surface Slap (target bite types: {string.Join(", ", targetBiteTypes)})");
-        
-        foreach (var spot in fishingSpots)
+        GatherBuddy.Log.Debug($"[AutoHook] Collecting fish from {relevantSpots.Count} fishing spots for Surface Slap (target bite types: {string.Join(", ", targetBiteTypes)})");
+
+        // Single pass over all fish — avoids an O(spots × allFish) nested scan.
+        foreach (var fish in GatherBuddy.GameData.Fishes.Values)
         {
-            var fishAtSpot = GatherBuddy.GameData.Fishes.Values
-                .Where(f => f.FishingSpots.Contains(spot) && !f.IsSpearFish)
-                .ToList();
-            
-            GatherBuddy.Log.Debug($"[AutoHook] Found {fishAtSpot.Count} fish at {spot.Name}");
-            
-            foreach (var fish in fishAtSpot)
-            {
-                if (existingFish.Contains(fish))
-                    continue;
-                
-                if (targetBiteTypes.Contains(fish.BiteType))
-                    additionalFish.Add(fish);
-            }
+            if (fish.IsSpearFish)
+                continue;
+            if (existingFish.Contains(fish))
+                continue;
+            if (!targetBiteTypes.Contains(fish.BiteType))
+                continue;
+            // Only include if the fish lives on at least one of the relevant spots.
+            if (fish.FishingSpots.Any(s => relevantSpots.Contains(s)))
+                additionalFish.Add(fish);
         }
+
+        GatherBuddy.Log.Debug($"[AutoHook] Found {additionalFish.Count} additional fish for Surface Slap");
         
         return additionalFish;
     }
@@ -249,9 +247,11 @@ public class AutoHookPresetBuilder
             }
         }
         
+        var finalPredatorArray  = finalPredatorFish.ToArray();
+        var predatorMoochChain  = finalPredatorArray.Length > 0 ? BuildMoochChain(finalPredatorArray[0]) : new HashSet<Fish>();
         foreach (var fish in predators)
         {
-            AddFishConfig(preset, fish, finalPredatorFish.ToArray(), predators);
+            AddFishConfig(preset, fish, finalPredatorArray, predators, predatorMoochChain);
         }
 
         ConfigureExtraCfg(preset, actualBaitId);
@@ -325,9 +325,10 @@ public class AutoHookPresetBuilder
             preset.ListOfMooch.Add(hookConfig);
         }
         
+        var targetMoochChain = targetFish.Length > 0 ? BuildMoochChain(targetFish[0]) : new HashSet<Fish>();
         foreach (var fish in allFishWithMooches)
         {
-            AddFishConfig(preset, fish, targetFish, allFishWithMooches);
+            AddFishConfig(preset, fish, targetFish, allFishWithMooches, targetMoochChain);
         }
 
         ConfigureExtraCfg(preset, actualBaitId);
@@ -402,10 +403,11 @@ public class AutoHookPresetBuilder
             preset.ListOfMooch.Add(hookConfig);
         }
         
-        // Add all fish configs
+        // Add all fish configs - pre-compute the mooch chain once to avoid O(n²) work
+        var singlePresetMoochChain = fishArray.Length > 0 ? BuildMoochChain(fishArray[0]) : new HashSet<Fish>();
         foreach (var fish in allFishWithMooches)
         {
-            AddFishConfig(preset, fish, fishArray, allFishWithMooches);
+            AddFishConfig(preset, fish, fishArray, allFishWithMooches, singlePresetMoochChain);
         }
 
         ConfigureExtraCfg(preset, actualBaitId);
@@ -616,7 +618,30 @@ public class AutoHookPresetBuilder
         };
     }
 
-    private static void AddFishConfig(AHCustomPresetConfig preset, Fish fish, Fish[] targetFishList, HashSet<Fish> allFish)
+    /// <summary>
+    /// Builds the mooch chain for a single target fish, walking Mooches[^1] until no more mooches
+    /// or a cycle is detected. Guards against both moochFish cycles and currentFish cycles so the
+    /// loop cannot run indefinitely even with malformed game data.
+    /// </summary>
+    private static HashSet<Fish> BuildMoochChain(Fish targetFish)
+    {
+        var visited = new HashSet<Fish>();
+        var chain   = new HashSet<Fish>();
+        var current = targetFish;
+        while (current.Mooches.Length > 0)
+        {
+            var next = current.Mooches[^1];
+            // Guard against self-reference and revisiting any node in either direction.
+            if (visited.Contains(next) || ReferenceEquals(next, current))
+                break;
+            visited.Add(current);
+            chain.Add(next);
+            current = next;
+        }
+        return chain;
+    }
+
+    private static void AddFishConfig(AHCustomPresetConfig preset, Fish fish, Fish[] targetFishList, HashSet<Fish> allFish, HashSet<Fish> precomputedMoochChain)
     {
         bool isTargetFish = targetFishList.Any(f => f.ItemId == fish.ItemId);
         if (isTargetFish)
@@ -624,22 +649,10 @@ public class AutoHookPresetBuilder
         
         var targetFish = targetFishList.FirstOrDefault();
         if (targetFish == null)
-        {
             return;
-        }
-        
-        var targetMoochChain = new HashSet<Fish>();
-        var currentFish = targetFish;
-        while (currentFish.Mooches.Length > 0)
-        {
-            var moochFish = currentFish.Mooches[^1];
-            if (targetMoochChain.Contains(moochFish))
-            {
-                break;
-            }
-            targetMoochChain.Add(moochFish);
-            currentFish = moochFish;
-        }
+
+        // Use the pre-computed chain passed in by the caller (built once per preset, not once per fish).
+        var targetMoochChain = precomputedMoochChain;
         
         bool isPartOfTargetMoochChain = targetMoochChain.Contains(fish);
         

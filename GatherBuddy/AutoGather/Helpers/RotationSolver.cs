@@ -297,11 +297,11 @@ namespace GatherBuddy.AutoGather.Helpers
 
             if (slot.Item.NodeType is Enums.NodeType.Unspoiled or Enums.NodeType.Legendary or Enums.NodeType.Clouded)
             {
-                await Task.Run(() => SolveInternal(state));
+                await Task.Run(() => SolveInternal(state)).ConfigureAwait(false);
             }
             else if (slot.Item.NodeType is Enums.NodeType.Regular)
             {
-                await SolveForRegularNodes(state);
+                await SolveForRegularNodes(state).ConfigureAwait(false);
             }
             else
             {
@@ -471,7 +471,7 @@ namespace GatherBuddy.AutoGather.Helpers
                         }));
                     }
 
-                    await Task.WhenAll(tasks.Select(t => Task.Run(() => SolveInternal(t.state))).ToList());
+                    await Task.WhenAll(tasks.Select(t => Task.Run(() => SolveInternal(t.state))).ToList()).ConfigureAwait(false);
 
                     GatherBuddy.Log.Debug($"Rotation solver: yield / 100gp {string.Join("; ", tasks.Select(t => $"{t.tag}: {t.state.Global.BestYield / 1000m}"))}; filler: {fillerYield / 1000m}.");
 
@@ -480,7 +480,7 @@ namespace GatherBuddy.AutoGather.Helpers
                 }
                 else
                 {
-                    await Task.Run(() => SolveInternal(state));
+                    await Task.Run(() => SolveInternal(state)).ConfigureAwait(false);
                     GatherBuddy.Log.Debug($"Rotation solver: yield / 100gp current: {state.Global.BestYield / 1000m}; filler: {fillerYield / 1000m}.");
                 }
             }
