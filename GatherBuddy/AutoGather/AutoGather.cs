@@ -595,12 +595,14 @@ namespace GatherBuddy.AutoGather
                     if (!isSpearfishing && (nextTarget == default || nextTarget.Item != _currentGatherTarget?.Item))
                     {
                         // If NeverLeaveLowUptimeFishEarly is on and the current fish is rarer (lower uptime %)
-                        // than the incoming fish, suppress the interruption entirely.
+                        // than the incoming fish, suppress the interruption — but only while the current
+                        // fish's window is still active. If the window has ended, always quit.
                         var shouldSuppress = false;
                         if (GatherBuddy.Config.AutoGatherConfig.NeverLeaveLowUptimeFishEarly
                             && nextTarget != default
                             && nextTarget.Fish != null
-                            && _currentGatherTarget?.Fish != null)
+                            && _currentGatherTarget?.Fish != null
+                            && _currentGatherTarget.Value.Time.InRange(GatherBuddy.Time.ServerTime))
                         {
                             var currentUptime = FishUptimeHelper.GetUptimePercent(_currentGatherTarget.Value.Fish);
                             var nextUptime    = FishUptimeHelper.GetUptimePercent(nextTarget.Fish);
