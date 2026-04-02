@@ -227,43 +227,65 @@ public partial class AutoGather
 
         try
         {
-            if (_currentAutoHookPresetName != null)
-            {
-                if (_isCurrentPresetUserOwned)
-                {
-                    GatherBuddy.Log.Debug($"[AutoGather] Preserving user-owned preset '{_currentAutoHookPresetName}'");
-                }
-                else
-                {
-                    AutoHook.SetPreset?.Invoke(_currentAutoHookPresetName);
-                    AutoHook.DeleteSelectedPreset?.Invoke();
-                    GatherBuddy.Log.Debug($"[AutoGather] Deleted GBR-generated preset '{_currentAutoHookPresetName}'");
-                    
-                    if (_currentAutoHookTargetPresetName != null)
-                    {
-                        AutoHook.SetPreset?.Invoke(_currentAutoHookTargetPresetName);
-                        AutoHook.DeleteSelectedPreset?.Invoke();
-                        GatherBuddy.Log.Debug($"[AutoGather] Deleted GBR-generated preset '{_currentAutoHookTargetPresetName}'");
-                    }
-                }
-            }
-            
+            // --- Phase 1: immediate, fast — no disk I/O ---
+
+            // Capture all relevant state before clearing fields so no other code
+            // path can observe stale values or attempt a double-cleanup.
+            var isUserOwned          = _isCurrentPresetUserOwned;
+            var presetToDelete       = isUserOwned ? null : _currentAutoHookPresetName;
+            var targetPresetToDelete = isUserOwned ? null : _currentAutoHookTargetPresetName;
+            var preservedPresetName  = isUserOwned ? _currentAutoHookPresetName : null;
+            var wasSpearfish         = _currentAutoHookTarget.HasValue && _currentAutoHookTarget.Value.Fish?.IsSpearFish == true;
+
+            _currentAutoHookTarget           = null;
+            _currentAutoHookPresetName       = null;
+            _currentAutoHookTargetPresetName = null;
+            _isCurrentPresetUserOwned        = false;
+            _autoHookSetupComplete           = false;
+
+            if (preservedPresetName != null)
+                GatherBuddy.Log.Debug($"[AutoGather] Preserving user-owned preset '{preservedPresetName}'");
+
+            // Disable AutoHook immediately — these are cheap in-memory state flips.
             AutoHook.SetPluginState?.Invoke(false);
             AutoHook.SetAutoStartFishing?.Invoke(false);
             AutoHook.SetAutoGigState?.Invoke(false);
             GatherBuddy.Log.Debug("[AutoGather] AutoHook/AutoGig disabled");
-            
-            if (_currentAutoHookTarget.HasValue && _currentAutoHookTarget.Value.Fish?.IsSpearFish == true)
+
+            if (wasSpearfish)
             {
                 GatherBuddy.Log.Debug("[AutoGather] Calling UpdateSpearfishingCatches from CleanupAutoHook");
                 UpdateSpearfishingCatches();
             }
-            
-            _currentAutoHookTarget = null;
-            _currentAutoHookPresetName = null;
-            _currentAutoHookTargetPresetName = null;
-            _isCurrentPresetUserOwned = false;
-            _autoHookSetupComplete = false;
+
+            // --- Phase 2: deferred — SetPreset + DeleteSelectedPreset trigger a
+            //     synchronous disk write inside AutoHook; enqueue so it runs on the
+            //     next frame rather than blocking the current framework update. ---
+            if (presetToDelete != null)
+            {
+                var primary = presetToDelete;
+                var secondary = targetPresetToDelete;
+                TaskManager.Enqueue(() =>
+                {
+                    try
+                    {
+                        AutoHook.SetPreset?.Invoke(primary);
+                        AutoHook.DeleteSelectedPreset?.Invoke();
+                        GatherBuddy.Log.Debug($"[AutoGather] Deleted GBR-generated preset '{primary}'");
+
+                        if (secondary != null)
+                        {
+                            AutoHook.SetPreset?.Invoke(secondary);
+                            AutoHook.DeleteSelectedPreset?.Invoke();
+                            GatherBuddy.Log.Debug($"[AutoGather] Deleted GBR-generated preset '{secondary}'");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        GatherBuddy.Log.Error($"[AutoGather] Exception deleting AutoHook preset(s): {ex.Message}");
+                    }
+                }, "CleanupAutoHookPresets");
+            }
         }
         catch (Exception ex)
         {
