@@ -594,15 +594,31 @@ namespace GatherBuddy.AutoGather
                     var nextTarget = _activeItemList.GetNextOrDefault();
                     if (!isSpearfishing && (nextTarget == default || nextTarget.Item != _currentGatherTarget?.Item))
                     {
-                        if (IsFishing && AutoHook.Enabled)
+                        // If NeverLeaveLowUptimeFishEarly is on and the current fish is rarer (lower uptime %)
+                        // than the incoming fish, suppress the interruption entirely.
+                        var shouldSuppress = false;
+                        if (GatherBuddy.Config.AutoGatherConfig.NeverLeaveLowUptimeFishEarly
+                            && nextTarget != default
+                            && nextTarget.Fish != null
+                            && _currentGatherTarget?.Fish != null)
                         {
-                            // Wait until fishing is finished before quitting, as spawn conditions snapshot when the line is cast.
-                            AutoHook.SetAutoStartFishing(false);
+                            var currentUptime = FishUptimeHelper.GetUptimePercent(_currentGatherTarget.Value.Fish);
+                            var nextUptime    = FishUptimeHelper.GetUptimePercent(nextTarget.Fish);
+                            shouldSuppress = currentUptime < nextUptime;
                         }
-                        else
+
+                        if (!shouldSuppress)
                         {
-                            CleanupAutoHook();
-                            QueueQuitFishingTasks();
+                            if (IsFishing && AutoHook.Enabled)
+                            {
+                                // Wait until fishing is finished before quitting, as spawn conditions snapshot when the line is cast.
+                                AutoHook.SetAutoStartFishing(false);
+                            }
+                            else
+                            {
+                                CleanupAutoHook();
+                                QueueQuitFishingTasks();
+                            }
                         }
                         return;
                     }

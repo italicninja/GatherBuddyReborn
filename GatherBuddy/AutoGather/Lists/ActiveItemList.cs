@@ -27,6 +27,7 @@ namespace GatherBuddy.AutoGather.Lists
         private readonly Dictionary<uint, int>                   _teleportationCosts = [];
         private readonly Dictionary<GatheringNode, TimeInterval> _visitedTimedNodes  = [];
         private          TimeStamp                               _lastUpdateTime     = TimeStamp.MinValue;
+        private          TimeStamp                               _lastFishUpdateTime = TimeStamp.MinValue;
         private          uint                                    _lastTerritoryId;
         private          int                                     _lastWeatherId;
         private          bool                                    _activeItemsChanged;
@@ -88,7 +89,7 @@ namespace GatherBuddy.AutoGather.Lists
                 DoUpdate();
 
             return _currentItem = _gatherableItems
-                .FirstOrDefault(x => x.Time.InRange(_lastUpdateTime) && NeedsGathering(x));
+                .FirstOrDefault(x => x.Time.InRange(x.FishingSpot != null ? _lastFishUpdateTime : _lastUpdateTime) && NeedsGathering(x));
         }
 
         /// <summary>
@@ -191,6 +192,7 @@ namespace GatherBuddy.AutoGather.Lists
             var minerLevel = (DiscipleOfLand.MinerLevel + 5) / 5 * 5;
             var botanistLevel = (DiscipleOfLand.BotanistLevel + 5) / 5 * 5;
             var adjustedServerTime = _lastUpdateTime;
+            var adjustedFishTime   = _lastFishUpdateTime;
             var territoryId = _lastTerritoryId;
             var weatherId = _lastWeatherId;
             DateTime? nextAllowance = null;
@@ -205,7 +207,7 @@ namespace GatherBuddy.AutoGather.Lists
                     => (x.Item, Location, Time: Location switch
                     {
                         GatheringNode node => node.Times.NextUptime(adjustedServerTime),
-                        FishingSpot spot => GatherBuddy.UptimeManager.NextUptime((x.Item as Fish)!, spot.Territory, adjustedServerTime),
+                        FishingSpot spot => GatherBuddy.UptimeManager.NextUptime((x.Item as Fish)!, spot.Territory, adjustedFishTime),
                         _ => throw new InvalidOperationException()
                     }, x.Quantity, x.PreferredLocation)))
                 // If treasure map, only gather if the allowance is up.
@@ -220,15 +222,15 @@ namespace GatherBuddy.AutoGather.Lists
                     _ => true
                 })
                 // Apply predators and mooch dependencies time restrictions.
-                .Select(x => x with { Time = IntersectMoochUptime(x.Item, x.Location, x.Time, adjustedServerTime) })
+                .Select(x => x with { Time = IntersectMoochUptime(x.Item, x.Location, x.Time, x.Location is FishingSpot ? adjustedFishTime : adjustedServerTime) })
                 .Select(x => x with { Location = CorrectForPredatorLocation(x.Item, x.Location) })
-                .Select(x => x with { Time = IntersectPredatorUptime(x.Item, x.Location, x.Time, adjustedServerTime) })
+                .Select(x => x with { Time = IntersectPredatorUptime(x.Item, x.Location, x.Time, x.Location is FishingSpot ? adjustedFishTime : adjustedServerTime) })
                 // Remove uptime for nodes that have already been gathered.
                 .Select(x => x.Location is GatheringNode node && _visitedTimedNodes.ContainsKey(node) ? x with { Time = TimeInterval.Invalid } : x)
                 // Group by item and select the best node.
                 .GroupBy(x => x.Item, x => x, (_, g) => g
                     // Prioritize active nodes
-                    .OrderBy(x => !x.Time.InRange(adjustedServerTime))
+                    .OrderBy(x => !x.Time.InRange(x.Location is FishingSpot ? adjustedFishTime : adjustedServerTime))
                     // Prioritize preferred location, then current job, then preferred job, then the rest.
                     .ThenBy(x =>
                         x.Location == x.PreferredLocation ? 0
@@ -261,9 +263,14 @@ namespace GatherBuddy.AutoGather.Lists
                 )
                 .Select(x => new GatherTarget(x.Item, x.Location, x.Time, x.Quantity))
                 // Put inactive timed nodes to the end, ordered by start time.
-                .OrderBy(x => x.Time.InRange(adjustedServerTime) ? TimeStamp.MinValue : x.Time.Start)
-                // Bring active timed nodes to the front.
-                .ThenBy(x => x.Time == TimeInterval.Always);
+                .OrderBy(x => x.Time.InRange(x.FishingSpot != null ? adjustedFishTime : adjustedServerTime) ? TimeStamp.MinValue : x.Time.Start)
+                // Bring always-up items after timed items.
+                .ThenBy(x => x.Time == TimeInterval.Always)
+                // Sort fish by uptime % ascending (lowest uptime = highest priority = gather first).
+                .ThenBy(x =>
+                    GatherBuddy.Config.AutoGatherConfig.SortFishByUptimePercent && x.Fish != null
+                        ? FishUptimeHelper.GetUptimePercent(x.Fish)
+                        : int.MaxValue);
 
             if (GatherBuddy.Config.AutoGatherConfig.SortingMethod == AutoGatherConfig.SortingType.Location)
             {
@@ -502,6 +509,7 @@ namespace GatherBuddy.AutoGather.Lists
             if (_activeItemsChanged
                 || _forceUpdateUnconditionally
                 || _lastUpdateTime.TotalEorzeaHours() != AutoGather.AdjustedServerTime.TotalEorzeaHours()
+                || _lastFishUpdateTime.TotalEorzeaHours() != AutoGather.AdjustedServerTimeFish.TotalEorzeaHours()
                 || _lastTerritoryId != Dalamud.ClientState.TerritoryType
                 || Diadem.IsInside && _lastWeatherId != EnhancedCurrentWeather.GetCurrentWeatherId()
                 || _lastJob != currentJob)
@@ -518,6 +526,7 @@ namespace GatherBuddy.AutoGather.Lists
             var territoryId        = Dalamud.ClientState.TerritoryType;
             var weatherId          = Diadem.IsInside ? EnhancedCurrentWeather.GetCurrentWeatherId() : 0;
             var adjustedServerTime = AutoGather.AdjustedServerTime;
+            var adjustedFishTime   = AutoGather.AdjustedServerTimeFish;
             var eorzeaHour         = adjustedServerTime.TotalEorzeaHours();
             var lastTerritoryId    = _lastTerritoryId;
             var lastWeatherId      = _lastWeatherId;
@@ -533,6 +542,7 @@ namespace GatherBuddy.AutoGather.Lists
             _activeItemsChanged = false;
             _forceUpdateUnconditionally = false;
             _lastUpdateTime     = adjustedServerTime;
+            _lastFishUpdateTime = adjustedFishTime;
             _lastTerritoryId    = territoryId;
             _lastWeatherId      = weatherId;
             _lastJob            = currentJob;

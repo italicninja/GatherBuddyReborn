@@ -13,7 +13,10 @@ namespace GatherBuddy.AutoGather
 
         public bool UseGivingLandOnCooldown { get; set; } = false;
 
-        public int TimedNodePrecog { get; set; } = 20;
+        public int  TimedNodePrecog             { get; set; } = 20;
+        public int  FishPrecog                  { get; set; } = 20;
+        public bool SortFishByUptimePercent     { get; set; } = true;
+        public bool NeverLeaveLowUptimeFishEarly{ get; set; } = true;
         public bool DoGathering { get; set; } = true;
         public bool AutoRetainerMultiMode { get; set; } = false;
         public int AutoRetainerMultiModeThreshold { get; set; } = 300;

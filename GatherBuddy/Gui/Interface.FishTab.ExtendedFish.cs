@@ -1,5 +1,6 @@
 using Dalamud.Interface.Textures;
 using Dalamud.Interface.Utility;
+using GatherBuddy.AutoGather;
 using GatherBuddy.Classes;
 using GatherBuddy.Config;
 using GatherBuddy.Enums;
@@ -90,24 +91,6 @@ public partial class Interface
         public (ILocation, TimeInterval) Uptime
             => GatherBuddy.UptimeManager.BestLocation(Data);
 
-        private static ushort SetUptime(Fish fish)
-        {
-            var uptime = 10000L;
-            if (!fish.Interval.AlwaysUp())
-                uptime = uptime * fish.Interval.OnTime / EorzeaTimeStampExtensions.MillisecondsPerEorzeaHour / RealTime.HoursPerDay;
-            ushort bestUptime = 0;
-            foreach (var spot in fish.FishingSpots)
-            {
-                var tmp = uptime
-                  * spot.Territory.WeatherRates.ChanceForWeather(fish.PreviousWeather)
-                  * spot.Territory.WeatherRates.ChanceForWeather(fish.CurrentWeather)
-                  / 10000;
-                if (tmp > bestUptime)
-                    bestUptime = (ushort)tmp;
-            }
-
-            return bestUptime;
-        }
 
         private static ISharedImmediateTexture[] SetWeather(Fish fish)
         {
@@ -291,7 +274,7 @@ public partial class Interface
                         ? "Unknown Uptime"
                         : string.Intern(Data.Interval.PrintHours());
 
-            UptimePercent = SetUptime(Data);
+            UptimePercent = FishUptimeHelper.GetUptimePercent(Data);
             UptimeString  = string.Intern($"{(UptimePercent / 100f).ToString("F1", CultureInfo.InvariantCulture)}%");
             if (UptimeString == "0.0%")
                 UptimeString = "<0.1%";

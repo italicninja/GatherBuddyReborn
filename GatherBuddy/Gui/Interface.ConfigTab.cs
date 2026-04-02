@@ -156,6 +156,31 @@ public partial class Interface
             ImGuiUtil.HoverTooltip("The maximum number of minutes you will fish at a fishing spot.");
         }
 
+        public static void DrawFishPrecog()
+        {
+            ImGui.SetNextItemWidth(150);
+            var tmp = GatherBuddy.Config.AutoGatherConfig.FishPrecog;
+            if (ImGui.DragInt("Fish Precognition (Seconds)", ref tmp, 1, 0, 600))
+            {
+                GatherBuddy.Config.AutoGatherConfig.FishPrecog = tmp;
+                GatherBuddy.Config.Save();
+            }
+
+            ImGuiUtil.HoverTooltip("How far in advance of a fish's time window opening GBR should consider it active and begin travelling to it. Separate from the general Timed Node Precognition setting.");
+        }
+
+        public static void DrawSortFishByUptimePercent()
+            => DrawCheckbox("Sort Fish by Uptime %",
+                "When enabled, fish with a lower uptime % (rarer availability) are gathered before fish with higher uptime %. Lowest uptime = highest priority.",
+                GatherBuddy.Config.AutoGatherConfig.SortFishByUptimePercent,
+                b => GatherBuddy.Config.AutoGatherConfig.SortFishByUptimePercent = b);
+
+        public static void DrawNeverLeaveLowUptimeFishEarly()
+            => DrawCheckbox("Never Leave Rarer Fish Early",
+                "When enabled, GBR will not abandon a fish with a lower uptime % (rarer) to chase a fish with a higher uptime % (more common), even if the more common fish's window opens.",
+                GatherBuddy.Config.AutoGatherConfig.NeverLeaveLowUptimeFishEarly,
+                b => GatherBuddy.Config.AutoGatherConfig.NeverLeaveLowUptimeFishEarly = b);
+
         public static void DrawAutoretainerBox()
         {
             DrawCheckbox("Wait for AutoRetainer Multi-mode", "Pause GBR automatically when AutoRetainer has retainers to process during Multi-mode",
@@ -1620,6 +1645,9 @@ public partial class Interface
             {
                 ConfigFunctions.DrawUseExistingAutoHookPresetsBox();
                 ConfigFunctions.DrawFishingSpotMinutes();
+                ConfigFunctions.DrawFishPrecog();
+                ConfigFunctions.DrawSortFishByUptimePercent();
+                ConfigFunctions.DrawNeverLeaveLowUptimeFishEarly();
                 ConfigFunctions.DrawFishCollectionBox();
                 ConfigFunctions.DrawAutoCollectablesFishingBox();
                 ConfigFunctions.DrawDeferRepairDuringFishingBuffsBox();

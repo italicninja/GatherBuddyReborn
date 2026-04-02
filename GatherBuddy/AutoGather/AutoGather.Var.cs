@@ -283,6 +283,9 @@ namespace GatherBuddy.AutoGather
         public static TimeStamp AdjustedServerTime
             => GatherBuddy.Time.ServerTime.AddSeconds(GatherBuddy.Config.AutoGatherConfig.TimedNodePrecog);
 
+        public static TimeStamp AdjustedServerTimeFish
+            => GatherBuddy.Time.ServerTime.AddSeconds(GatherBuddy.Config.AutoGatherConfig.FishPrecog);
+
         private ConfigPreset MatchConfigPreset(Gatherable? item)
             => _plugin.Interface.MatchConfigPreset(item);
 
